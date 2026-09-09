@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07141e">
+<title>Fault lab | BreakEven</title>
+<style>
+:root {
+  color-scheme: dark;
+  --canvas: #07141e;
+  --surface: #0d202d;
+  --surface-raised: #112b3a;
+  --surface-muted: #0a1a25;
+  --line: #294656;
+  --line-strong: #3b6173;
+  --text: #edf7f7;
+  --muted: #a9c0c7;
+  --accent: #55dfd0;
+  --accent-ink: #062826;
+  --danger: #f0ab91;
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 320px;
+  margin: 0;
+  min-height: 100dvh;
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 88% 0%, #114b59 0, transparent 31rem),
+    radial-gradient(circle at 0 78%, #102f40 0, transparent 28rem),
+    var(--canvas);
+}
+
+a { color: var(--accent); }
+a:hover { color: #a4fff4; }
+a:focus-visible, button:focus-visible, select:focus-visible {
+  outline: 3px solid #d4fff8;
+  outline-offset: 3px;
+}
+
+.shell {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2.5rem) 0 3rem;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 0 1.75rem;
+}
+
+.brand {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.agent-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--text);
+  font-weight: 800;
+  text-decoration: none;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.agent-link:hover {
+  border-color: var(--accent);
+  background: rgb(85 223 208 / 0.1);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(15rem, 0.8fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: end;
+  padding: clamp(1.5rem, 5vw, 4rem) 0 clamp(1.75rem, 4vw, 3rem);
+}
+
+.kicker {
+  margin: 0 0 0.75rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1, h2, p { margin-top: 0; }
+h1 {
+  max-width: 13ch;
+  margin-bottom: 1rem;
+  font-size: clamp(2.45rem, 7vw, 5.2rem);
+  line-height: 0.96;
+  letter-spacing: -0.055em;
+}
+
+.intro-copy {
+  max-width: 57ch;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.8vw, 1.15rem);
+  line-height: 1.6;
+}
+
+.purpose {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgb(13 32 45 / 0.78);
+  box-shadow: inset 0 1px 0 rgb(237 247 247 / 0.06);
+}
+
+.purpose h2 { margin-bottom: 0.45rem; font-size: 0.92rem; }
+.purpose p { margin-bottom: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgb(17 43 58 / 0.98), rgb(10 26 37 / 0.98));
+  box-shadow: 0 18px 55px rgb(0 0 0 / 0.18), inset 0 1px 0 rgb(237 247 247 / 0.06);
+}
+
+.panel-header { padding: 1.3rem 1.35rem 0; }
+.panel-header h2 { margin-bottom: 0.35rem; font-size: 1.15rem; letter-spacing: -0.02em; }
+.panel-header p { margin-bottom: 0; color: var(--muted); line-height: 1.5; }
+
+.controls { padding: 1.35rem; }
+label { display: block; margin-bottom: 0.55rem; color: var(--text); font-size: 0.86rem; font-weight: 750; }
+
+select, button { min-height: 2.95rem; border-radius: 10px; font: inherit; }
+select {
+  width: 100%;
+  padding: 0 0.85rem;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.control-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+button {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid transparent;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+button:active { transform: translateY(1px); }
+button:disabled { cursor: wait; opacity: 0.68; }
+#inject-fault { background: var(--accent); color: var(--accent-ink); }
+#inject-fault:hover { background: #8af4e7; }
+#clear-fault { border-color: var(--line-strong); color: var(--text); background: transparent; }
+#clear-fault:hover { border-color: var(--danger); color: #ffd8ca; background: rgb(240 171 145 / 0.1); }
+
+.status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-height: 4.4rem;
+  margin: 0;
+  padding: 1rem 1.35rem 1.15rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.status::before {
+  flex: 0 0 auto;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgb(85 223 208 / 0.12);
+  content: "";
+}
+
+.status[data-state="working"]::before { background: #f6d284; box-shadow: 0 0 0 4px rgb(246 210 132 / 0.12); }
+.status[data-state="error"]::before { background: var(--danger); box-shadow: 0 0 0 4px rgb(240 171 145 / 0.12); }
+
+.agent-panel {
+  display: grid;
+  min-height: 100%;
+  padding: 1.35rem;
+  place-items: center;
+  text-align: center;
+}
+
+.agent-content { width: min(100%, 23rem); }
+
+.agent-mark {
+  display: grid;
+  width: 4.35rem;
+  height: 4.35rem;
+  margin: 0 auto 1.2rem;
+  place-items: center;
+  border: 1px solid rgb(85 223 208 / 0.58);
+  border-radius: 14px;
+  color: var(--accent);
+  font-size: 1.28rem;
+  font-weight: 850;
+  letter-spacing: -0.08em;
+  background: linear-gradient(135deg, rgb(85 223 208 / 0.16), rgb(85 223 208 / 0.03));
+  box-shadow: inset 0 1px 0 rgb(237 247 247 / 0.12);
+}
+
+.agent-panel h2 { margin-bottom: 0.5rem; font-size: 1.28rem; letter-spacing: -0.025em; }
+.agent-panel p { margin-bottom: 1.35rem; color: var(--muted); line-height: 1.55; }
+
+@media (max-width: 760px) {
+  .shell { width: min(100% - 1.25rem, 1120px); }
+  .topbar { padding-bottom: 0.65rem; }
+  .intro, .lab-grid { grid-template-columns: 1fr; }
+  .intro { padding-top: 2rem; }
+  h1 { max-width: 10ch; }
+}
+
+@media (max-width: 430px) {
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .control-actions { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <a class="brand" href="/agent">BreakEven</a>
+  </header>
+
+  <section class="intro" aria-labelledby="page-title">
+    <div>
+      <p class="kicker">Simulator control surface</p>
+      <h1 id="page-title">Fault lab</h1>
+      <p class="intro-copy">Create one real simulator fault, then open the autonomous agent to follow the response.</p>
+    </div>
+    <aside class="purpose" aria-label="What this page does">
+      <h2>What this page does</h2>
+      <p>It controls the demo simulator only. Investigation, approvals, and the action record stay on the agent page.</p>
+    </aside>
+  </section>
+
+  <section class="lab-grid" aria-label="Fault simulator controls">
+    <section class="panel" aria-labelledby="fault-controls-title">
+      <div class="panel-header">
+        <h2 id="fault-controls-title">Create a test condition</h2>
+        <p>Select the fault shape to inject into the simulator. Clear it after the demonstration.</p>
+      </div>
+      <div class="controls">
+        <label for="fault-type">Fault type</label>
+        <select id="fault-type">
+          <option value="">Creative error (A3)</option>
+          <option value="beacon_blackhole">Beacon blackhole (A4)</option>
+          <option value="origin_degradation">Origin degradation (A1)</option>
+          <option value="stitch_corruption">Stitch corruption</option>
+        </select>
+        <div class="control-actions">
+          <button id="inject-fault" type="button">Inject fault</button>
+          <button id="clear-fault" type="button">Clear fault</button>
+        </div>
+      </div>
+      <p id="control-status" class="status" data-state="ready" aria-live="polite">Ready to create a simulator fault.</p>
+    </section>
+
+    <aside class="panel agent-panel" aria-labelledby="agent-panel-title">
+      <div class="agent-content">
+        <div class="agent-mark" aria-hidden="true">BE</div>
+        <h2 id="agent-panel-title">Autonomous agent</h2>
+        <p>Follow the simulator fault through detection, review, action, and recovery.</p>
+        <a class="agent-link" href="/agent">Open autonomous agent</a>
+      </div>
+    </aside>
+
+  </section>
+</main>
+<script>
+"use strict";
+var statusNode = document.getElementById("control-status");
+var injectButton = document.getElementById("inject-fault");
+var clearButton = document.getElementById("clear-fault");
+
+function setStatus(message, state) {
+  statusNode.textContent = message;
+  statusNode.dataset.state = state;
+}
+
+function setWorking(working) {
+  injectButton.disabled = working;
+  clearButton.disabled = working;
+}
+
+function post(path, payload) {
+  setWorking(true);
+  setStatus("Applying simulator control…", "working");
+  return fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: payload ? JSON.stringify(payload) : undefined
+  }).then(function(response) {
+    return response.json().then(function(body) {
+      if (!response.ok) { throw new Error(body.detail || "Control failed"); }
+      setStatus(body.message || body.status, "ready");
+    });
+  }).catch(function(error) {
+    setStatus("Could not complete that control: " + error.message, "error");
+  }).finally(function() {
+    setWorking(false);
+  });
+}
+
+injectButton.onclick = function() {
+  post("/controls/inject", {fault_type: document.getElementById("fault-type").value || null});
+};
+clearButton.onclick = function() { post("/controls/clear-fault"); };
+
+</script>
+</body>
+</html>

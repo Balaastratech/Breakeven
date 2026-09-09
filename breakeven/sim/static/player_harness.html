@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>BreakEven player harness</title>
+<!-- Presentation only. The steering, fragment-fetch and acknowledgement logic below is
+     untouched: this same file is what the operator console embeds, so it has to be
+     watchable at frame size, and `muted` + `playsinline` + `autoplay` is the combination
+     browsers allow to start without a click. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #05070a; }
+  #player { display: block; width: 100%; height: 100%; object-fit: contain; background: #05070a; }
+</style>
+<video id="player" muted playsinline autoplay></video>
+<script src="/hls.min.js"></script>
+<script src="/dash.all.min.js"></script>
+<script>
+"use strict";
+
+// How long to wait before asking hls.js to start loading again after it has given up on a
+// fatal network error. A real player keeps trying to come back from an outage; without it,
+// delivery can be fully restored and the picture stays frozen forever, which would make the
+// recovery half of an incident impossible to observe.
+var RECOVERY_RETRY_MS = 2000;
+
+var params = new URLSearchParams(window.location.search);
+var session = params.get("session");
+// Direct links may contain only the session. The simulator's public proxy is the
+// canonical live origin, so default to it instead of leaving a silent black player.
+var origin = params.get("origin") || "/player/playlist.m3u8?live=1";
+window.playerHarness = { started: false, session: session };
+var pageStartedAt = performance.now();
+var firstPlayingAt = null;
+var rebufferStartedAt = null;
+var totalRebufferMs = 0;
+var bitrateSwitches = 0;
+var currentLevel = null;
+var telemetryQueue = Promise.resolve();
+
+function fail(message) {
+  window.playerHarness.error = message;
+  throw new Error(message);
+}
+
+if (!session || !window.Hls || !window.dashjs) {
+  fail("session, hls.js, and dash.js are required");
+}
+
+fetch("/v1/steer?session=" + session)
+  .then(function (response) {
+    if (!response.ok) {
+      throw new Error("steering manifest request failed");
+    }
+    return response.json();
+  })
+  .then(function (manifest) {
+    window.playerHarness.steering = manifest;
+    var hls = new Hls();
+    hls.on(Hls.Events.ERROR, function (event, data) {
+      window.playerHarness.error = data.type + ": " + data.details;
+      if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        window.setTimeout(function () {
+          hls.startLoad();
+        }, RECOVERY_RETRY_MS);
+      }
+    });
+    var player = document.getElementById("player");
+    function qoeSnapshot() {
+      var now = performance.now();
+      var rebufferMs = totalRebufferMs;
+      if (rebufferStartedAt !== null) {
+        rebufferMs += now - rebufferStartedAt;
+      }
+      var observedMs = firstPlayingAt === null ? 0 : now - firstPlayingAt;
+      return {
+        session: session,
+        player: "hls.js",
+        startup_time_seconds: (firstPlayingAt - pageStartedAt) / 1000,
+        rebuffer_ratio: observedMs > 0 ? Math.min(1, rebufferMs / observedMs) : 0,
+        bitrate_switches: bitrateSwitches
+      };
+    }
+    function emitQoe() {
+      if (firstPlayingAt === null) {
+        return;
+      }
+      var observation = qoeSnapshot();
+      telemetryQueue = telemetryQueue
+        .catch(function () {})
+        .then(function () {
+          return fetch("/v1/player-qoe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(observation)
+          });
+        })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("QoE metric write failed with HTTP " + response.status);
+          }
+          window.playerHarness.qoe = observation;
+          window.playerHarness.qoeEmitted = true;
+          delete window.playerHarness.qoeError;
+        })
+        .catch(function (error) {
+          window.playerHarness.qoeError = error.message;
+        });
+    }
+    player.addEventListener("waiting", function () {
+      if (firstPlayingAt !== null && rebufferStartedAt === null) {
+        rebufferStartedAt = performance.now();
+        emitQoe();
+      }
+    });
+    player.addEventListener("playing", function () {
+      var now = performance.now();
+      if (firstPlayingAt === null) {
+        firstPlayingAt = now;
+      }
+      if (rebufferStartedAt !== null) {
+        totalRebufferMs += now - rebufferStartedAt;
+        rebufferStartedAt = null;
+      }
+      emitQoe();
+    });
+    hls.on(Hls.Events.LEVEL_SWITCHED, function (event, data) {
+      if (currentLevel !== null && currentLevel !== data.level) {
+        bitrateSwitches += 1;
+      }
+      currentLevel = data.level;
+      emitQoe();
+    });
+    window.setInterval(emitQoe, 5000);
+    hls.on(Hls.Events.FRAG_LOADED, function () {
+      if (window.playerHarness.started) {
+        return;
+      }
+      fetch("/v1/segment-ack?session=" + session, { method: "POST" })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("segment acknowledgement failed");
+          }
+          window.playerHarness.started = true;
+        })
+        .catch(function (error) {
+          window.playerHarness.error = error.message;
+        });
+    });
+    hls.loadSource(origin);
+    hls.attachMedia(player);
+    window.playerHarness.player = hls;
+  })
+  .catch(function (error) {
+    window.playerHarness.error = error.message;
+  });
+</script>
+</html>

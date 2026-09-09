@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BreakEven — operator console</title>
+<style>
+  :root {
+    --bg0: #05070a;
+    --bg1: #0a0e14;
+    --bg2: #10151c;
+    --bg3: #171e28;
+    --edge: #232b36;
+    --ink: #e7ecf3;
+    --dim: #7d8896;
+    --live: #33d17a;
+    --dead: #ff5c5c;
+    --amber: #e3a13a;
+    --tool: #5fa8ff;
+    --tempo: #b98cff;
+    --money: #ffcf70;
+    --accent: #ff6a3d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg0);
+    color: var(--ink);
+    font: 14px/1.5 "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+  h1, .display, .stat-card > span { font-family: "Arial Narrow", Bahnschrift, "Aptos Display", "Segoe UI", sans-serif; }
+
+  /* ---------------------------------------------------------------- header */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg1);
+    border-bottom: 2px solid var(--accent);
+    padding: 10px 20px 14px;
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+  body[data-agent-killed="true"] header {
+    border-bottom-color: var(--dead);
+    box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.14) inset;
+  }
+  .header-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+  .header-row-top { margin-bottom: 10px; }
+  h1 {
+    margin: 0;
+    font-size: clamp(18px, 2.2vw, 24px);
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: linear-gradient(120deg, var(--ink) 40%, var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  #status {
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    border: 1px solid currentColor;
+  }
+  body[data-connection="live"] #status { color: var(--live); background: rgba(51, 209, 122, 0.1); }
+  body[data-connection="live"] #status[data-liveness="stale"] { color: var(--amber); background: rgba(227, 161, 58, 0.12); }
+  body[data-connection="disconnected"] #status { color: var(--dead); background: rgba(255, 92, 92, 0.1); }
+  .at { color: var(--dim); font-size: 12px; }
+  #agent-status, #watchdog-banner {
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    border: 1px solid currentColor;
+  }
+  #agent-status[data-state="unknown"] { color: var(--dim); }
+  #agent-status[data-state="alive"] { color: var(--live); background: rgba(51, 209, 122, 0.1); }
+  #agent-status[data-state="killed"] { color: var(--dead); background: rgba(255, 92, 92, 0.14); }
+  #watchdog-banner[data-armed="false"] { color: var(--dim); }
+  #watchdog-banner[data-armed="true"] {
+    color: var(--amber);
+    background: rgba(227, 161, 58, 0.14);
+    box-shadow: 0 0 0 3px rgba(227, 161, 58, 0.08);
+  }
+  #hero-stats { display: flex; flex-wrap: wrap; gap: 12px; }
+  .stat-card {
+    padding: 10px 16px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--bg2);
+    min-width: 180px;
+  }
+  .stat-card > span {
+    display: block;
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .stat-card > strong {
+    display: block;
+    margin-top: 4px;
+    font-family: "Arial Narrow", Bahnschrift, "Aptos Display", "Segoe UI", sans-serif;
+    line-height: 1;
+  }
+  #tonight-revenue-card > strong { font-size: clamp(30px, 3.4vw, 46px); color: var(--money); }
+  #brief-risk > strong { font-size: clamp(20px, 2vw, 28px); color: var(--dim); }
+  #loss-averted-card > strong { font-size: clamp(20px, 2vw, 28px); color: var(--live); }
+  #brief-risk[data-active="true"] {
+    border-color: rgba(255, 92, 92, 0.55);
+    background: linear-gradient(160deg, #2a1517, var(--bg2));
+  }
+  #brief-risk[data-active="true"] > strong { color: var(--dead); }
+  .calls-card > strong { font-size: clamp(20px, 2vw, 28px); color: var(--tool); }
+  @keyframes value-flash { from { transform: translateY(-6px); opacity: 0.35; } to { transform: translateY(0); opacity: 1; } }
+  .value-flash { animation: value-flash 260ms ease both; }
+
+  #banner {
+    display: none;
+    padding: 8px 20px;
+    background: #3a1414;
+    color: #ffd7d7;
+    border-bottom: 1px solid var(--dead);
+  }
+  body[data-connection="disconnected"] #banner { display: block; }
+
+  /* ---------------------------------------------------------------- layout */
+  main {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1.5fr) 340px;
+    gap: 16px;
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 18px 20px 4px;
+  }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  @media (max-width: 1400px) {
+    main { grid-template-columns: 1fr; max-width: 900px; }
+  }
+
+  /* Three deliberate groups, not three coincidentally-adjacent columns. */
+  .col-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 0 2px;
+  }
+  .proof-section { border: none; background: none; padding: 0; margin: 0; }
+  .proof-section > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    user-select: none;
+    min-height: 30px;
+    padding: 0 2px;
+  }
+  .proof-section > summary::-webkit-details-marker { display: none; }
+  .proof-section > summary::after {
+    content: "▸";
+    display: inline-block;
+    transition: transform 150ms ease;
+    color: var(--tool);
+  }
+  .proof-section[open] > summary::after { transform: rotate(90deg); }
+  .proof-section > summary .col-label { color: var(--tool); }
+  .proof-section > section { margin-top: 8px; }
+
+  section {
+    background: var(--bg2);
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: opacity 200ms ease, filter 200ms ease;
+  }
+  section[data-stale="true"] { opacity: 0.5; filter: grayscale(0.6); }
+  section > h2 {
+    margin: 0;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    border-bottom: 1px solid var(--edge);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg3);
+  }
+  section[data-stale="true"] > h2::after { content: "stale"; color: var(--dead); font-weight: 800; }
+  #evidence-panel > h2 { color: var(--tempo); }
+  #mcp-panel > h2, #grafana-panel > h2 { color: var(--tool); }
+
+  /* ------------------------------------------------------------- pipeline */
+  .rows { max-height: 46vh; overflow-y: auto; }
+  .stage-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--edge); }
+  .stage-index { color: var(--dim); font-size: 11px; width: 16px; flex: 0 0 auto; }
+  .stage-id { font-weight: 700; }
+  .stage-status { margin-left: auto; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .stage-detail { flex-basis: 100%; color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .stage-row[data-status="started"] { border-left: 3px solid var(--tool); }
+  .stage-row[data-status="started"] .stage-status { color: var(--tool); }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .stage-row[data-status="started"] .stage-index { animation: pulse-dot 1.4s ease-in-out infinite; }
+  .stage-row[data-status="failed"] { border-left: 3px solid var(--dead); background: rgba(255, 92, 92, 0.06); }
+  .stage-row[data-status="failed"] .stage-status { color: var(--dead); }
+  .stage-row[data-status="skipped"] { opacity: 0.55; }
+  .stage-row[data-status="skipped"] .stage-status { color: var(--dim); }
+
+  /* ------------------------------------------------------------- incidents */
+  .incident-card { padding: 11px 14px; border-bottom: 1px solid var(--edge); }
+  .incident-card strong { display: block; margin: 3px 0; color: var(--money); font-size: 18px; }
+
+  /* ------------------------------------------------------------- brief */
+  .hero-body { padding: 16px; }
+  /* One badge treatment, two places that show agent state: the brief's own header and the
+     caption under the live player. Shared rather than re-palletted so the two can never
+     disagree about what "reverted" looks like. */
+  .state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+  }
+  #incident-status { margin-bottom: 10px; }
+  .state-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .state-badge[data-state="monitor"] { color: var(--live); background: rgba(51, 209, 122, 0.1); }
+  .state-badge[data-state="incident"] { color: var(--dead); background: rgba(255, 92, 92, 0.12); }
+  .state-badge[data-state="applying"] { color: var(--tool); background: rgba(95, 168, 255, 0.12); }
+  .state-badge[data-state="resolved"] { color: var(--live); background: rgba(51, 209, 122, 0.14); }
+  .state-badge[data-state="reverted"] { color: var(--tempo); background: rgba(185, 140, 255, 0.14); }
+  .state-badge[data-state="attention"] { color: var(--amber); background: rgba(227, 161, 58, 0.14); }
+  .incident-context { color: var(--ink); font-size: 14px; font-weight: 700; }
+  .brief-copy { border-top: 1px solid var(--edge); margin-top: 12px; padding-top: 12px; color: var(--ink); white-space: pre-wrap; }
+  .brief-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .brief-links a {
+    color: var(--tool);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border: 1px solid rgba(95, 168, 255, 0.4);
+    border-radius: 8px;
+  }
+  .brief-links a:hover { background: rgba(95, 168, 255, 0.12); }
+  .brief-links a[hidden] { display: none; }
+
+  /* ------------------------------------------------------------- evidence */
+  .claim { padding: 12px 14px; border-bottom: 1px solid var(--edge); }
+  .claim-text { display: block; margin: 2px 0 8px; font-family: "Arial Narrow", Bahnschrift, "Aptos Display", "Segoe UI", sans-serif; font-size: 15px; color: var(--ink); }
+  .label { color: var(--dim); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .ungrounded { color: var(--dead); font-weight: 800; }
+  .claim.is-ungrounded { border-left: 3px solid var(--dead); background: rgba(255, 92, 92, 0.06); }
+  pre {
+    margin: 5px 0 0;
+    padding: 8px 10px;
+    background: var(--bg1);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--dim);
+    font-size: 12px;
+  }
+
+  /* ------------------------------------------------------------- narration */
+  .step { display: flex; gap: 10px; padding: 8px 14px; align-items: flex-start; }
+  .step-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--dim); }
+  .step:last-child .step-dot { background: var(--tempo); box-shadow: 0 0 0 4px rgba(185, 140, 255, 0.16); }
+  .step-text { flex: 1 1 auto; }
+
+  /* ------------------------------------------------------------- mcp calls */
+  .call { padding: 0; border-bottom: 1px solid var(--edge); }
+  .call > summary { list-style: none; cursor: pointer; padding: 10px 14px; }
+  .call > summary::-webkit-details-marker { display: none; }
+  .call > .label, .call > pre { margin-left: 14px; margin-right: 14px; }
+  .call > pre:last-child { margin-bottom: 10px; }
+  .call-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .server-badge { font-size: 10px; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 5px; border: 1px solid currentColor; color: var(--tool); }
+  .call.tempo .server-badge { color: var(--tempo); }
+  .call.tempo { border-left: 3px solid var(--tempo); }
+  .call:not(.tempo) { border-left: 3px solid var(--tool); }
+  .tool { color: var(--ink); font-weight: 700; }
+  .verdict { margin-left: auto; font-size: 11px; letter-spacing: 0.1em; }
+  .verdict[data-ok="true"] { color: var(--live); }
+  .verdict[data-ok="false"] { color: var(--dead); }
+  .replayed { opacity: 0.75; }
+
+  /* ------------------------------------------------------------- live player */
+  #player-panel > h2 { color: var(--accent); }
+  #player-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: var(--bg1); }
+  #player-frame[hidden] { display: none; }
+  #player-placeholder { padding: 18px; color: var(--dim); font-size: 12.5px; }
+  /* Always rendered, never a tooltip or a hover reveal: a live panel that needs
+     interaction before it can be read has already failed the person watching it. */
+  #player-caption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    padding: 11px 14px;
+    border-top: 1px solid var(--edge);
+    background: var(--bg1);
+  }
+  #player-caption-text { flex: 1 1 220px; color: var(--ink); font-size: 12.5px; }
+
+  /* ------------------------------------------------------------- grafana */
+  #grafana-panel > h2 a { color: var(--tool); text-transform: none; letter-spacing: normal; font-weight: 600; text-decoration: none; }
+  #grafana-panel > h2 a:hover { text-decoration: underline; }
+  #grafana-panel > h2 a[hidden] { display: none; }
+  #grafana-frame { width: 100%; height: auto; display: block; background: var(--bg1); }
+  .grafana-snapshot-meta { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-top: 1px solid rgba(143,175,211,.14); color: #91a7c0; background: rgba(5,13,23,.4); font-size: 11px; }
+  .grafana-snapshot-meta strong { color: #c7d9ee; font-weight: 650; }
+  #grafana-placeholder { padding: 18px; color: var(--dim); font-size: 12.5px; }
+  #grafana-placeholder a { color: var(--tool); }
+
+  /* ------------------------------------------------------------- action bar */
+  footer#action-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    max-width: 1800px;
+    margin: 6px auto 28px;
+    padding: 0 20px;
+  }
+  @media (max-width: 1400px) { footer#action-bar { grid-template-columns: 1fr; max-width: 900px; } }
+  #approval-panel > h2 { color: var(--amber); }
+  #approval-panel[data-armed="true"] {
+    border-color: rgba(227, 161, 58, 0.65);
+    background: linear-gradient(160deg, #2a1f10, var(--bg2));
+    box-shadow: 0 0 0 1px rgba(227, 161, 58, 0.18) inset;
+  }
+  .gate-armed { animation: value-flash 320ms ease both; }
+  #approval-detail { padding: 14px; }
+  .approval-actions, .controls { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 14px 14px; }
+  .empty { padding: 14px; color: var(--dim); }
+  .control-note { padding: 0 14px 12px; color: var(--dim); font-size: 11.5px; }
+
+  button {
+    padding: 10px 18px;
+    cursor: pointer;
+    font: 700 12px/1 "SF Mono", "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 8px;
+    border: 1px solid var(--edge);
+    background: var(--bg1);
+    color: var(--ink);
+    transition: transform 120ms ease, background 150ms ease, border-color 150ms ease;
+  }
+  button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--accent); }
+  button:active:not(:disabled) { transform: translateY(0); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  button[aria-busy="true"] { opacity: 0.6; cursor: wait; }
+  #check-now { border-color: rgba(95, 168, 255, 0.55); color: var(--tool); }
+  #check-now:hover:not(:disabled) { background: rgba(95, 168, 255, 0.12); }
+  #revert-now { border-color: rgba(227, 161, 58, 0.55); color: var(--amber); }
+  #revert-now:hover:not(:disabled) { background: rgba(227, 161, 58, 0.12); }
+  #kill-agent { border-color: rgba(255, 92, 92, 0.55); color: var(--dead); }
+  #kill-agent:hover:not(:disabled) { background: rgba(255, 92, 92, 0.12); }
+  #approve-action { border-color: rgba(51, 209, 122, 0.55); color: var(--live); }
+  #approve-action:hover:not(:disabled) { background: rgba(51, 209, 122, 0.12); }
+  #reject-action { border-color: rgba(255, 92, 92, 0.55); color: var(--dead); }
+  #reject-action:hover:not(:disabled) { background: rgba(255, 92, 92, 0.12); }
+  #control-status { padding: 0 14px 14px; color: var(--dim); font-weight: 600; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .arrival, .value-flash, .gate-armed, .stage-row[data-status="started"] .stage-index {
+      animation: none;
+    }
+  }
+  @media (max-width: 640px) {
+    .header-row { gap: 8px; }
+    .stat-card { min-width: 130px; }
+  }
+  .arrival { animation: event-arrival 420ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes event-arrival {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Four local views share one WebSocket state; tabs never fetch or reset it. */
+  #view-navigation { position: fixed; inset: 0 auto 0 0; z-index: 4; width: 210px; padding: 24px 12px; background: linear-gradient(180deg, #080d14, #05070a); border-right: 1px solid var(--edge); }
+  .nav-brand { padding: 0 12px 22px; border-bottom: 1px solid var(--edge); margin-bottom: 16px; }
+  .nav-brand strong { display: block; font-family: "Arial Narrow", Bahnschrift, "Aptos Display", sans-serif; font-size: 22px; letter-spacing: 0.04em; }
+  .nav-brand span { color: var(--tool); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+  .view-tab { width: 100%; display: flex; align-items: center; gap: 10px; margin: 4px 0; padding: 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; text-transform: none; letter-spacing: 0; font-size: 13px; }
+  .view-tab::before { content: ""; width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; opacity: 0.75; }
+  .view-tab[aria-selected="true"] { background: rgba(95, 168, 255, 0.13); color: var(--tool); border-color: rgba(95, 168, 255, 0.2); }
+  .view-tab[aria-selected="true"]::before { background: currentColor; }
+  header, #banner, main, footer#action-bar, #escalations-panel, #investigate-panel { margin-left: 210px; }
+  main { min-height: calc(100vh - 250px); }
+  body[data-view="incident"] main { grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.6fr); }
+  body[data-view="incident"] main > .col:nth-child(3), body[data-view="incident"] #player-panel { display: none; }
+  body[data-view="proof"] main { grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.4fr); }
+  body[data-view="proof"] main > .col:first-child, body[data-view="proof"] #player-panel { display: none; }
+  body[data-view="player"] main { grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.7fr); }
+  body[data-view="player"] main > .col:first-child { display: none; }
+  body[data-view="player"] .col:nth-child(2) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 0.45fr); align-content: start; }
+  body[data-view="player"] .col:nth-child(2) > .col-label { grid-column: 1 / -1; }
+  body[data-view="player"] #narration-panel { height: 100%; }
+  @media (max-width: 760px) {
+    #view-navigation { position: static; width: auto; display: flex; align-items: center; gap: 4px; padding: 8px 14px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--edge); }
+    .nav-brand { display: none; }
+    .view-tab { width: auto; margin: 0; white-space: nowrap; }
+    header, #banner, main, footer#action-bar { margin-left: 0; }
+    body[data-view="incident"] main, body[data-view="proof"] main, body[data-view="player"] main { grid-template-columns: 1fr; }
+    body[data-view="player"] .col:nth-child(2) { display: flex; }
+  }
+
+  /* ------------------------------------------------------------------ console redesign */
+  /* The page is a live control surface, not a collection of dimmed debug boxes. Empty
+     panels remain clear about their state while retaining the same physical layout the
+     incoming event stream will fill. */
+  body { background: radial-gradient(circle at 58% -20%, #13233b 0, #07101c 34%, #050a12 72%); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .18; background-image: radial-gradient(rgba(146, 182, 232, .28) .55px, transparent .55px); background-size: 5px 5px; z-index: -1; }
+  .num, .col-label, .label, .at, section > h2, button, .nav-brand span { font-family: "SFMono-Regular", Consolas, monospace; }
+  header { position: sticky; top: 10px; z-index: 10; display: grid; grid-template-columns: minmax(360px, 1.05fr) minmax(560px, 1.65fr); align-items: stretch; gap: 18px; margin-top: 10px; margin-right: 14px; padding: 14px 28px; border: 1px solid rgba(95, 168, 255, .22); border-radius: 10px; background: rgba(7, 15, 26, .94); box-shadow: 0 14px 42px rgba(0, 0, 0, .28); }
+  .header-row-top { grid-column: 1; margin: 0; align-content: center; }
+  #hero-stats { grid-column: 2; display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 10px; }
+  h1 { font-size: 22px; letter-spacing: -.03em; background: none; color: #f4f8ff; text-transform: none; }
+  #status, #agent-status, #watchdog-banner { border: 0; border-radius: 5px; padding: 6px 9px; background: rgba(255,255,255,.04); letter-spacing: .06em; }
+  .stat-card { min-width: 0; height: 88px; padding: 14px 16px; border-color: rgba(143, 175, 211, .18); border-radius: 7px; background: linear-gradient(145deg, rgba(22, 38, 59, .88), rgba(10, 19, 31, .88)); box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 12px 26px rgba(0,0,0,.13); overflow: hidden; }
+  .stat-card > span { color: #94aecb; font-size: 10px; letter-spacing: .08em; }
+  #tonight-revenue-card > strong, #brief-risk > strong, #loss-averted-card > strong, .calls-card > strong { margin-top: 9px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(19px, 1.5vw, 27px); }
+  /* This is an accounting value, not a label: shrink before truncating. */
+  #tonight-revenue-card > strong { font-size: clamp(14px, 1.12vw, 22px); letter-spacing: -.045em; text-overflow: clip; }
+  #brief-risk > strong, #loss-averted-card > strong { white-space: normal; font-size: clamp(16px, 1.25vw, 22px); line-height: 1.05; }
+  #view-navigation { width: 224px; display: flex; flex-direction: column; padding: 24px 12px; background: linear-gradient(180deg, rgba(9, 18, 30, .98), rgba(5, 11, 19, .98)); border-right-color: rgba(151,180,215,.16); }
+  .nav-brand { padding: 4px 12px 24px; border-bottom-color: rgba(151,180,215,.16); }
+  .nav-brand strong { color: #f4f8ff; font-size: 22px; letter-spacing: -.04em; }
+  .nav-brand span { margin-top: 5px; color: #6aaeff; }
+  .view-tab { min-height: 48px; margin: 7px 0; border-radius: 6px; font-weight: 650; transition: background .18s ease, color .18s ease, transform .18s ease; }
+  .view-tab:hover { background: rgba(78, 142, 224, .1); transform: translateX(2px); }
+  .view-tab[aria-selected="true"] { background: linear-gradient(90deg, rgba(30, 94, 187, .64), rgba(25, 55, 99, .42)); border-color: rgba(95, 168, 255, .25); box-shadow: inset 3px 0 #5fa8ff; }
+  #sidebar-approval { margin-top: auto; padding: 14px 12px; border: 1px solid rgba(143,175,211,.18); border-radius: 8px; background: linear-gradient(145deg, rgba(18, 35, 57, .8), rgba(7, 16, 27, .8)); }
+  #investigate-panel { max-width: 900px; margin-top: 0; margin-right: 14px; margin-bottom: 18px; padding: 14px 28px; box-sizing: border-box; border: 1px solid rgba(95, 168, 255, .18); border-radius: 10px; background: rgba(7, 15, 26, .7); }
+  #investigate-panel, #investigate-panel * { overflow-wrap: break-word; word-break: break-word; }
+  #investigate-panel .investigate-call-row code { white-space: pre-wrap; }
+  #investigate-panel .hint { color: #90a8c2; font-size: 12px; margin: 4px 0 10px; }
+  #investigate-panel #investigate-status { font-size: 12px; color: #90a8c2; margin-top: 8px; min-height: 16px; }
+  #investigate-panel #investigate-root-cause { margin: 10px 0; font-size: 14px; }
+  #investigate-panel .investigate-call-row { font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; color: #b8cbe0; padding: 4px 0; border-top: 1px solid rgba(143,175,211,.12); }
+  #investigate-panel .investigate-call-row code { color: #35e0c8; }
+  #sidebar-approval[data-armed="true"] { border-color: rgba(227,161,58,.65); background: linear-gradient(145deg, rgba(74, 51, 16, .6), rgba(12, 22, 31, .9)); box-shadow: 0 0 0 1px rgba(227,161,58,.15) inset; }
+  #sidebar-approval h2 { margin: 0 0 8px; color: #f2f7ff; font-size: 13px; }
+  #sidebar-approval .approval-kicker { color: #90a8c2; font-size: 10px; font-family: "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+  #approval-detail { margin: 8px 0 12px; color: #c7d5e5; font-size: 12px; line-height: 1.45; }
+  #sidebar-approval .approval-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  #sidebar-approval .approval-actions button { min-height: 34px; padding: 8px; font-size: 12px; }
+  header, #banner, main, footer#action-bar, .console-context, #escalations-panel, #investigate-panel { margin-left: 224px; }
+  .console-context { display: grid; grid-template-columns: minmax(260px, 1fr) auto; align-items: center; gap: 18px; max-width: 1800px; margin-top: 18px; margin-right: auto; margin-bottom: -4px; padding: 0 28px; background: none; border: 0; box-shadow: none; overflow: visible; }
+  #view-title { margin: 0; color: #eff6ff; font-size: 22px; letter-spacing: -.035em; }
+  #view-description { margin: 0; max-width: 70ch; color: #92a7c0; font-size: 13px; }
+  .quick-controls { display: flex; align-items: stretch; gap: 8px; padding: 8px; border: 1px solid rgba(143,175,211,.2); border-radius: 8px; background: rgba(8, 19, 33, .78); box-shadow: inset 0 1px rgba(255,255,255,.04); }
+  .quick-controls .approval-actions, .quick-controls .controls { padding: 0; gap: 8px; }
+  .quick-controls .approval-actions { padding-left: 8px; border-left: 1px solid rgba(143,175,211,.16); }
+  .quick-controls button { min-height: 36px; padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+  main { max-width: none; min-height: auto; grid-template-columns: 310px minmax(430px, 1.55fr) minmax(310px, .78fr); gap: 14px; padding: 18px 28px 8px; }
+  .col { gap: 12px; }
+  .col-label { color: #74aefa; font-size: 10px; letter-spacing: .12em; }
+  section { border-color: rgba(143, 175, 211, .18); border-radius: 7px; background: linear-gradient(150deg, rgba(16, 30, 48, .92), rgba(9, 18, 30, .92)); box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 14px 28px rgba(0,0,0,.14); }
+  section[data-stale="true"] { opacity: 1; filter: none; }
+  section > h2 { padding: 13px 15px; color: #edf5ff; font-size: 13px; letter-spacing: -.01em; text-transform: none; background: rgba(5, 13, 23, .28); border-bottom-color: rgba(143, 175, 211, .14); }
+  section[data-stale="true"] > h2::after { content: "Awaiting live data"; color: #8499b2; font-size: 10px; font-weight: 600; text-transform: none; letter-spacing: .03em; }
+  .empty, .empty-state { margin: 0; min-height: 100px; display: grid; place-items: center start; padding: 22px 16px; color: #91a4ba; font-size: 13px; line-height: 1.55; }
+  #player-panel { min-height: 380px; } #player-placeholder { display: grid; min-height: 260px; place-items: center; padding: 28px; text-align: center; color: #9fb2c8; background: radial-gradient(circle at 50% 42%, rgba(49, 101, 165, .2), transparent 42%), #07111e; }
+  #player-caption { background: rgba(5, 13, 23, .42); border-top-color: rgba(143,175,211,.14); }
+  #narration-panel .rows { min-height: 190px; } #grafana-panel { overflow: clip; } #grafana-frame { min-height: 185px; object-fit: cover; }
+  footer#action-bar { display: none; }
+  #controls-panel { background: linear-gradient(115deg, rgba(14, 34, 60, .95), rgba(9, 18, 30, .96)); }
+  .controls { padding: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  button { min-height: 42px; border-radius: 6px; text-transform: none; letter-spacing: 0; font-family: inherit; font-weight: 650; }
+  #approve-action { color: #dfffea; background: rgba(27, 135, 76, .26); } #reject-action { color: #ffe0df; background: rgba(180, 49, 47, .18); }
+  body[data-view="incident"] main { grid-template-columns: 330px minmax(0, 1fr); } body[data-view="incident"] #narration-panel { min-height: 310px; }
+  body[data-view="incident"] #narration-panel { min-height: 460px; }
+  body[data-view="proof"] main { grid-template-columns: minmax(340px, .72fr) minmax(520px, 1.28fr); align-items:start; }
+  body[data-view="proof"] #narration-panel { min-height: 420px; }
+  body[data-view="proof"] .col:nth-child(3) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
+  body[data-view="proof"] .col:nth-child(3) > .col-label { grid-column: 1 / -1; }
+  body[data-view="proof"] #grafana-proof { grid-column: 1 / -1; }
+  body[data-view="proof"] #evidence-proof, body[data-view="proof"] #mcp-proof {
+    min-width: 0;
+    align-self: start;
+  }
+  body[data-view="player"] main { grid-template-columns: minmax(500px, 1.55fr) minmax(320px, .72fr); } body[data-view="player"] #player-panel { min-height: 540px; }
+  @media (max-width: 1400px) { header { grid-template-columns: 1fr; } .header-row-top, #hero-stats { grid-column: 1; } #hero-stats { grid-template-columns: repeat(2, minmax(150px,1fr)); } .console-context { margin-top: 12px; padding: 0 16px; } main, footer#action-bar { padding-left:16px; padding-right:16px; } .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 760px) { header { top: 0; margin-top: 0; margin-right: 0; border-right: 0; border-left: 0; border-radius: 0; } }
+  @media (max-width: 760px) { #hero-stats { grid-template-columns: 1fr; } .console-context { grid-template-columns: 1fr; align-items:flex-start; } .quick-controls { flex-wrap:wrap; width:100%; } .controls { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-connection="disconnected" data-agent-killed="false" data-view="command">
+<header>
+  <div class="header-row header-row-top">
+    <h1>BreakEven</h1>
+    <span id="status">DISCONNECTED</span>
+    <span class="at" id="last-event">no events yet</span>
+    <span class="at num" id="last-event-age"></span>
+    <span id="agent-status" data-state="unknown">NO AGENT YET</span>
+    <span id="watchdog-banner" data-armed="false">WATCHDOG IDLE</span>
+  </div>
+  <div class="header-row" id="hero-stats">
+    <div class="stat-card num" id="tonight-revenue-card">
+      <span>Tonight's revenue</span>
+      <strong id="tonight-revenue">Awaiting live metrics</strong>
+    </div>
+    <div class="stat-card num" id="brief-risk" data-active="false">
+      <span>Revenue at risk</span>
+      <strong id="brief-revenue">Awaiting incident</strong>
+    </div>
+    <div class="stat-card num" id="loss-averted-card">
+      <span>Loss averted tonight</span>
+      <strong id="loss-averted">Awaiting incident</strong>
+    </div>
+    <div class="stat-card num calls-card">
+      <span>Grafana calls observed</span>
+      <strong id="mcp-count">0</strong>
+    </div>
+  </div>
+</header>
+<div id="banner">
+  Agent stream disconnected. Everything below is the last thing observed, not the live
+  state. Reconnecting.
+</div>
+<section class="console-context" aria-labelledby="view-title">
+  <div>
+    <h2 id="view-title">Command center</h2>
+    <p id="view-description">Live operator state, current viewer session, and the controls that operate the existing platform.</p>
+  </div>
+  <div class="quick-controls" aria-label="Agent lifecycle">
+    <section id="agent-lifecycle" aria-labelledby="agent-lifecycle-title">
+      <h2 id="agent-lifecycle-title">Agent lifecycle</h2>
+      <div class="controls">
+        <button id="check-now" type="button" disabled>Check now</button>
+        <button id="revert-now" type="button" disabled>Revert now</button>
+        <button id="kill-agent" type="button" disabled>Kill the agent</button>
+      </div>
+    </section>
+  </div>
+</section>
+<section id="investigate-panel" aria-labelledby="investigate-title">
+  <h2 id="investigate-title">On-demand investigation</h2>
+  <p class="hint">Ask the same Gemini agent to look at a channel right now — real Grafana
+    tool calls, read-only, fully separate from the incident/remediation loop above.</p>
+  <button id="investigate-now" type="button">Investigate ch_flagship_01</button>
+  <div id="investigate-status" class="status"></div>
+  <div id="investigate-result" hidden>
+    <p id="investigate-root-cause"></p>
+    <details id="investigate-calls-detail">
+      <summary>Real Grafana tool calls</summary>
+      <div id="investigate-calls-rows"></div>
+    </details>
+  </div>
+</section>
+<section id="escalations-panel" aria-labelledby="escalations-title">
+  <h2 id="escalations-title">Escalations &amp; decisions</h2>
+  <p id="approval-escalation" hidden></p>
+  <p id="no-safe-fix-escalation" hidden></p>
+  <p id="policy-refused-escalation" hidden></p>
+</section>
+<nav id="view-navigation" aria-label="Operator console views" role="tablist">
+  <div class="nav-brand"><strong>BreakEven</strong><span>Command center</span></div>
+  <button class="view-tab" type="button" role="tab" data-view-target="command" aria-selected="true">Command center</button>
+  <button class="view-tab" type="button" role="tab" data-view-target="incident" aria-selected="false">Incident</button>
+  <button class="view-tab" type="button" role="tab" data-view-target="proof" aria-selected="false">Evidence &amp; proof</button>
+  <button class="view-tab" type="button" role="tab" data-view-target="player" aria-selected="false">Live player</button>
+  <section id="sidebar-approval" data-armed="false" aria-labelledby="approval-title">
+    <div class="approval-kicker">Decision required</div>
+    <h2 id="approval-title">Approval gate</h2>
+    <div id="approval-detail">No action is waiting for approval.</div>
+    <div class="approval-actions">
+      <button id="approve-action" type="button" disabled>Approve</button>
+      <button id="reject-action" type="button" disabled>Reject</button>
+    </div>
+  </section>
+</nav>
+<main>
+  <div class="col">
+    <div class="col-label">Incident</div>
+    <section id="pipeline-panel" data-stale="true">
+      <h2><span>Pipeline</span></h2>
+      <div class="rows" id="pipeline-rows"><p class="empty empty-state">No pipeline is active. Inject a fault only when you are ready to begin a real run.</p></div>
+    </section>
+    <section id="incident-feed-panel" data-stale="true">
+      <h2><span>Incident ranking</span></h2>
+      <div class="rows" id="incident-feed-rows"><p class="empty empty-state">No incidents recorded yet. None have been detected in this live session.</p></div>
+    </section>
+    <section id="brief-panel" data-stale="true">
+      <h2><span>Operator brief</span></h2>
+      <div class="hero-body">
+        <div id="incident-status" class="state-badge" data-state="monitor">Monitoring</div>
+        <div class="incident-context" id="brief-context">Waiting for the agent</div>
+        <div class="brief-copy" id="brief-rows">No completed action yet.</div>
+        <div class="brief-links">
+          <a id="brief-dashboard-link" href="#" target="_blank" rel="noopener" hidden>Open annotated dashboard</a>
+          <a id="brief-incident-link" href="#" target="_blank" rel="noopener" hidden>Open incident</a>
+          <a id="brief-alert-rule-link" href="#" target="_blank" rel="noopener" hidden>Open the alert rule</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <div class="col-label">Live view</div>
+    <section id="player-panel" data-stale="true">
+      <h2><span>Live viewer session</span><span class="at" id="player-channel"></span></h2>
+      <div id="player-placeholder">
+        Waiting for the simulator's live player session. This panel plays the real
+        <code>hls.js</code> session the player fleet already proves headlessly — real segments
+        from a real origin, not a visualisation of them.
+      </div>
+      <iframe id="player-frame" title="Live viewer session — a real hls.js player on a real origin" hidden></iframe>
+      <div id="player-caption">
+        <span id="player-caption-state" class="state-badge" data-state="monitor">Monitoring</span>
+        <span id="player-caption-text">Nothing has been changed on the platform yet.</span>
+      </div>
+    </section>
+    <section id="narration-panel" data-stale="true">
+      <h2><span>Agent narration</span></h2>
+      <div class="rows" id="narration-rows" aria-live="polite"><p class="empty empty-state">The agent narration will appear here when a live run starts.</p></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <div class="col-label">Proof</div>
+    <details class="proof-section" id="grafana-proof" open>
+      <summary><span class="col-label">Grafana snapshot</span><span class="at">Live dashboard image</span></summary>
+      <section id="grafana-panel">
+        <h2><span>Grafana snapshot</span><a id="grafana-open-link" href="#" target="_blank" rel="noopener" hidden>Open live dashboard ↗</a></h2>
+        <div id="grafana-placeholder">
+          Real-time revenue and delivery-health panels for this platform, rendered live from Grafana Cloud.
+          <span id="grafana-fallback-note"></span>
+        </div>
+        <img id="grafana-frame" style="display:none" alt="BreakEven revenue watch dashboard snapshot rendered by Grafana Cloud" />
+        <div class="grafana-snapshot-meta"><span id="grafana-snapshot-status">Snapshot not yet loaded.</span><strong>For live interaction, open the dashboard.</strong></div>
+      </section>
+    </details>
+    <details class="proof-section" id="evidence-proof">
+      <summary><span class="col-label">Evidence</span><span class="at">Claims and source results</span></summary>
+      <section id="evidence-panel" data-stale="true">
+        <h2><span>Evidence — claim beside its query</span></h2>
+        <div class="rows" id="evidence-rows"><p class="empty empty-state">Evidence appears only after the agent has collected it from Grafana.</p></div>
+      </section>
+    </details>
+    <details class="proof-section" id="mcp-proof">
+      <summary><span class="col-label">Grafana MCP calls</span><span class="at">Tool audit trail</span></summary>
+      <section id="mcp-panel" data-stale="true">
+        <h2><span>Grafana MCP calls</span></h2>
+        <div class="rows" id="mcp-rows"><p class="empty empty-state">No Grafana MCP calls have been made in this session.</p></div>
+      </section>
+    </details>
+  </div>
+</main>
+<footer id="action-bar" aria-live="polite"><div id="control-status">Ready.</div></footer>
+<script>
+"use strict";
+
+// Reconnect delay after the socket closes. This is a single deferred attempt to reopen the
+// transport, not a timer that pulls data: every event on this page arrives because the
+// server pushed it down an open socket.
+var RECONNECT_DELAY_MS = 1500;
+var STALE_AFTER_MS = 10000;
+var LIVENESS_TICK_MS = 250;
+
+var PANELS = [
+  "pipeline-panel", "mcp-panel", "evidence-panel", "brief-panel",
+  "incident-feed-panel", "sidebar-approval", "narration-panel", "player-panel"
+];
+var mcpCalls = 0;
+var mcpPlaceholder = true;
+var pipelinePlaceholder = true;
+var socket = null;
+var currentActionId = null;
+var pendingActionId = null;
+var incidentFeed = [];
+var pipelineStages = [];
+var lastEventAt = null;
+var OUTCOME_LABELS = {
+  "verified": "Verified",
+  "unverified_reverted_and_escalated": "Reverted",
+  "unverified_settlement_failed": "Needs follow-up",
+  "unverified_reverted_by_ttl": "Auto-reverted",
+  "unverified_measurement_failed": "Needs follow-up"
+};
+
+// Tempo is a second, separate Grafana MCP server from the metrics/logs/incident server.
+// Its tool names are always one of these prefixes, so a call is routed to the distinct
+// visual treatment purely from the name the server itself reported — never guessed.
+var TEMPO_TOOL_PATTERN = /^(get-trace|traceql|tempo)/i;
+
+// Grafana's own Public Dashboards share (`D-S76`) — a normal page, opens fine in a new
+// tab. It cannot be embedded inline: Grafana Cloud sends `frame-ancestors 'none'` on
+// every dashboard URL, including this one, so an iframe embed is refused by the browser
+// regardless of any account permission. The inline panel below is instead a server-
+// rendered image proxied through this same origin's `/grafana/panel.png` — see
+// `app.py`'s `grafana_panel` route. Empty renders the graceful fallback note instead.
+var GRAFANA_PUBLIC_URL =
+  "https://glowingwasp1671.grafana.net/public-dashboards/153fa5398f7540d1b1d2ab9ab02c5f1e";
+var GRAFANA_PANEL_IMAGE_URL = "/grafana/panel.png";
+var GRAFANA_PANEL_REFRESH_MS = 30000;
+
+// Narration text is plain English, generated by fixed message templates in
+// `breakeven/agents/orchestrator.py` (`_narrate_remedy`/`_narrate_outcome`). Matching
+// their stable prefixes here — never assuming the interpolated parts (channel name,
+// creative id, dollar figures) — turns that same text into a coarse incident-status
+// badge without any new backend event or wire-shape change. If those message templates
+// are ever reworded, this table is the one place to update alongside them.
+var STORY_STATES = [
+  ["Checking all channels", "monitor", "Monitoring"],
+  ["Found a problem on", "incident", "Incident detected"],
+  ["I need a human to approve this", "attention", "Awaiting human approval"],
+  ["Applying the fix now", "applying", "Fix applied — verifying"],
+  ["Confirmed: ads are loading normally again", "resolved", "Resolved — fix confirmed"],
+  ["The fix did not work, so it was undone", "reverted", "Auto-reverted — safety net engaged"],
+  ["The safety watchdog undid the fix", "reverted", "Auto-reverted — safety net engaged"],
+  ["I could not safely close out the fix", "attention", "Needs a human — could not close out"],
+  ["The result could not be measured", "attention", "Needs a human — could not measure"],
+];
+
+var VIEW_NAMES = ["command", "incident", "proof", "player"];
+var VIEW_CONTEXT = {
+  command: ["Command center", "Live operator state, current viewer session, and the controls that operate the existing platform."],
+  incident: ["Incident", "Pipeline progress, detected incidents, the operator brief, and the live approval decision."],
+  proof: ["Evidence & proof", "Grounded evidence, observed Grafana MCP calls, and the live dashboard for the current run."],
+  player: ["Live player", "The real viewer session, its current playback state, and the agent narration that explains changes." ]
+};
+
+function updateViewContext(view) {
+  var context = VIEW_CONTEXT[view] || VIEW_CONTEXT.command;
+  el("view-title").textContent = context[0];
+  el("view-description").textContent = context[1];
+}
+
+function selectView(view, writeHash) {
+  if (VIEW_NAMES.indexOf(view) === -1) {
+    view = "command";
+  }
+  document.body.setAttribute("data-view", view);
+  updateViewContext(view);
+  document.querySelectorAll("[data-view-target]").forEach(function (tab) {
+    var selected = tab.dataset.viewTarget === view;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  if (view === "proof" || view === "player") {
+    document.getElementById("grafana-proof").open = true;
+  }
+  if (writeHash && window.location.hash !== "#" + view) {
+    window.location.hash = view;
+  }
+}
+
+function viewFromHash() {
+  return window.location.hash.slice(1) || "command";
+}
+
+document.querySelectorAll("[data-view-target]").forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    selectView(tab.dataset.viewTarget, true);
+  });
+});
+window.addEventListener("hashchange", function () {
+  selectView(viewFromHash(), false);
+});
+selectView(viewFromHash(), false);
+
+function el(id) {
+  return document.getElementById(id);
+}
+
+function clear(node) {
+  while (node.firstChild) {
+    node.removeChild(node.firstChild);
+  }
+}
+
+function text(tag, className, value) {
+  var node = document.createElement(tag);
+  if (className) {
+    node.className = className;
+  }
+  node.textContent = value;
+  return node;
+}
+
+// Data stays in monospace for scanability; the display face is reserved for hierarchy.
+// Mark each inserted event once so CSS can make the server-pushed arrival visible without polling.
+function arrive(node) {
+  node.classList.add("arrival");
+  return node;
+}
+
+// Restarts a CSS animation on an already-rendered node by forcing a reflow between
+// removing and re-adding the class — the browser-native way to replay a keyframe
+// animation on a value that just changed, with no timer of any kind involved.
+function flashValue(idName) {
+  var node = el(idName);
+  node.classList.remove("value-flash");
+  void node.offsetWidth;
+  node.classList.add("value-flash");
+}
+
+// The one place the connection state is written. Both the close and the error handler call
+// it, so there is no path that leaves a live badge showing over a dead socket.
+function setConnected(connected) {
+  document.body.dataset.connection = connected ? "live" : "disconnected";
+  el("status").textContent = connected ? "LIVE" : "DISCONNECTED";
+  if (!connected) {
+    // Every panel is marked stale the moment the stream dies, so nothing on screen can be
+    // mistaken for the current state of the platform.
+    PANELS.forEach(function (id) {
+      el(id).setAttribute("data-stale", "true");
+    });
+  }
+}
+
+function markFresh(id) {
+  el(id).setAttribute("data-stale", "false");
+}
+
+function stamp(iso) {
+  var when = new Date(iso);
+  return isNaN(when.getTime()) ? iso : when.toLocaleTimeString();
+}
+
+function setAgentStatus(state, label) {
+  var badge = el("agent-status");
+  badge.setAttribute("data-state", state);
+  badge.textContent = label;
+  document.body.setAttribute("data-agent-killed", state === "killed" ? "true" : "false");
+}
+
+function setWatchdog(armed) {
+  var badge = el("watchdog-banner");
+  badge.setAttribute("data-armed", armed ? "true" : "false");
+  badge.textContent = armed ? "WATCHDOG ARMED" : "WATCHDOG IDLE";
+}
+
+function storyStateFor(narrationText) {
+  for (var i = 0; i < STORY_STATES.length; i++) {
+    if (narrationText.indexOf(STORY_STATES[i][0]) === 0) {
+      return STORY_STATES[i];
+    }
+  }
+  return null;
+}
+
+function updateIncidentStatus(narrationText) {
+  var state = storyStateFor(narrationText);
+  if (state === null) {
+    return;
+  }
+  el("incident-status").setAttribute("data-state", state[1]);
+  el("incident-status").textContent = state[2];
+  // Yuvraj, 2026-09-10: the hero "Revenue at risk" tile used to sit unchanged from the
+  // moment `open_incident` confirmed it until the final `brief` (minutes later, after the
+  // real ~9-10 min watchdog settle window) — looking identical whether the fix was still
+  // pending or had actually failed. It's not wrong (nothing IS confirmed yet), but it
+  // reads as "nothing is happening." Label the wait explicitly instead.
+  if (state[1] === "applying") {
+    var current = el("brief-revenue").textContent;
+    if (current.charAt(0) === "$" && current.indexOf("pending verification") === -1) {
+      el("brief-revenue").textContent = current + " — pending verification";
+    }
+  }
+}
+
+// --------------------------------------------------------------- live player
+
+// The caption is the agent's own narration text, verbatim, under the video — the same
+// string the narration panel renders, read through the same STORY_STATES table, so the
+// picture and the words describing it can never come from two different sources.
+function updatePlayerCaption(narrationText) {
+  var state = storyStateFor(narrationText);
+  if (state !== null) {
+    el("player-caption-state").setAttribute("data-state", state[1]);
+    el("player-caption-state").textContent = state[2];
+  }
+  el("player-caption-text").textContent = narrationText;
+}
+
+// The `src` is only ever written when it actually changes: this event is in the replay
+// buffer, so a reconnecting page would otherwise reload the frame and restart playback
+// from zero every time the socket blipped.
+function renderPlayer(event) {
+  var frame = el("player-frame");
+  if (frame.getAttribute("src") !== event.payload.player_url) {
+    frame.setAttribute("src", event.payload.player_url);
+  }
+  frame.removeAttribute("hidden");
+  el("player-placeholder").style.display = "none";
+  el("player-channel").textContent = event.payload.channel_id;
+  markFresh("player-panel");
+}
+
+// --------------------------------------------------------------- pipeline rail
+
+// Stages are never a fixed list: this table only ever grows from real `stage` events, in
+// the order this run happened to first mention them, so a differently-shaped pipeline on
+// a future run renders correctly without a code change.
+function pipelineContainer() {
+  var rows = el("pipeline-rows");
+  if (pipelinePlaceholder) {
+    clear(rows);
+    pipelinePlaceholder = false;
+  }
+  return rows;
+}
+
+function renderStage(event) {
+  var stageId = event.payload.stage;
+  // Yuvraj, 2026-09-10: `pipelineStages` used to grow forever — every cycle's stages
+  // have the same ids ("detect", "diagnose", ...), but a *later* cycle's tail stages
+  // (annotate_settlement, close_incident, brief, ...) never collide with an *earlier*
+  // cycle's head stages, so both just kept accumulating in one list across the whole
+  // page session. "detect: started" is the one unambiguous "a new cycle has begun"
+  // signal — reset here so the panel shows the current cycle, not every cycle ever run.
+  if (stageId === "detect" && event.payload.status === "started") {
+    pipelineStages = [];
+  }
+  var found = null;
+  for (var i = 0; i < pipelineStages.length; i++) {
+    if (pipelineStages[i].id === stageId) {
+      found = pipelineStages[i];
+      break;
+    }
+  }
+  if (found) {
+    found.status = event.payload.status;
+    found.detail = event.payload.detail;
+  } else {
+    pipelineStages.push({ id: stageId, status: event.payload.status, detail: event.payload.detail });
+  }
+
+  var rows = pipelineContainer();
+  clear(rows);
+  pipelineStages.forEach(function (stage, index) {
+    var row = document.createElement("div");
+    row.className = "stage-row";
+    row.setAttribute("data-status", stage.status);
+    row.appendChild(text("span", "stage-index", String(index + 1)));
+    row.appendChild(text("span", "stage-id", stage.id));
+    row.appendChild(text("span", "stage-status", stage.status));
+    if (stage.detail) {
+      row.appendChild(text("div", "stage-detail", stage.detail));
+    }
+    rows.appendChild(row);
+  });
+  markFresh("pipeline-panel");
+}
+
+// --------------------------------------------------------------- MCP calls
+
+// Clears the "waiting" placeholder the first time anything is written to the MCP panel.
+// Kept apart from the call counter so a drop notice cannot inflate the rendered-call
+// badge — the badge is the number the count-equality claim rests on.
+function mcpContainer() {
+  var rows = el("mcp-rows");
+  if (mcpPlaceholder) {
+    clear(rows);
+    mcpPlaceholder = false;
+  }
+  return rows;
+}
+
+function renderMcpCall(event) {
+  var isTempo = TEMPO_TOOL_PATTERN.test(event.payload.tool);
+  var row = document.createElement("details");
+  row.className = event.replay ? "call replayed" : "call";
+  if (isTempo) {
+    row.classList.add("tempo");
+  }
+  var summary = document.createElement("summary");
+  var head = document.createElement("div");
+  head.className = "call-head";
+  head.appendChild(text("span", "server-badge", isTempo ? "TEMPO MCP" : "GRAFANA MCP"));
+  head.appendChild(text("span", "tool", event.payload.tool));
+  head.appendChild(text("span", "at", stamp(event.at) + (event.replay ? " (replayed)" : "")));
+  var verdict = text("span", "verdict", event.payload.ok ? "OK" : "FAILED");
+  verdict.setAttribute("data-ok", String(event.payload.ok));
+  head.appendChild(verdict);
+  summary.appendChild(head);
+  row.appendChild(summary);
+  row.appendChild(text("div", "label", "arguments"));
+  row.appendChild(text("pre", null, JSON.stringify(event.payload.arguments, null, 2)));
+  row.appendChild(text("div", "label", "result"));
+  row.appendChild(text("pre", null, event.payload.result_summary));
+
+  var rows = mcpContainer();
+  rows.insertBefore(arrive(row), rows.firstChild);
+  mcpCalls += 1;
+  el("mcp-count").textContent = String(mcpCalls);
+  markFresh("mcp-panel");
+  refreshGrafanaPanelImage();
+}
+
+function renderEvidence(event) {
+  var rows = el("evidence-rows");
+  clear(rows);
+  rows.appendChild(
+    text("div", "label", event.payload.channel + " / " + event.payload.region)
+  );
+  event.payload.rows.forEach(function (pair) {
+    var row = document.createElement("div");
+    row.className = pair.grounded ? "claim" : "claim is-ungrounded";
+    row.appendChild(text("strong", "claim-text", pair.claim));
+    if (pair.grounded) {
+      row.appendChild(text("div", "label", "supported by, at " + stamp(pair.taken_at)));
+      row.appendChild(text("pre", null, pair.query));
+      row.appendChild(text("pre", null, pair.result));
+    } else {
+      row.appendChild(text("div", "label ungrounded", "no supporting evidence recorded"));
+    }
+    rows.appendChild(arrive(row));
+  });
+  markFresh("evidence-panel");
+}
+
+// `brief` only ever arrives once an incident has already settled (verified, reverted, or
+// escalated) — never while it is still live. Showing the peak historical dollar figure as
+// though it were the *current* risk right at the moment of resolution is exactly what reads
+// as "the fix didn't take" to a viewer watching the header, not the console. A genuinely
+// confirmed fix (`outcome === "verified"`) clears the risk to $0 here; every other outcome
+// (reverted, escalated, unmeasured) means the underlying fault's status is still uncertain,
+// so the dollar figure stays shown rather than being cleared to a falsely reassuring $0.
+var _VERIFIED_OUTCOME = "verified";
+
+function renderBrief(event) {
+  var revenueAtRisk = Number(event.payload.revenue_at_risk_per_min);
+  var actualLoss = Number(event.payload.actual_loss_usd);
+  var lossAverted = Number(event.payload.loss_averted_usd);
+  if (!isFinite(revenueAtRisk)) {
+    throw new Error("brief revenue-at-risk value was not a number");
+  }
+  if (!isFinite(actualLoss) || !isFinite(lossAverted)) {
+    throw new Error("brief loss values were not numbers");
+  }
+  el("brief-context").textContent = event.payload.channel + " / " + event.payload.region;
+  if (event.payload.outcome === _VERIFIED_OUTCOME) {
+    el("brief-revenue").textContent = "$0.00/min — resolved";
+    el("brief-risk").setAttribute("data-active", "false");
+  } else {
+    el("brief-revenue").textContent =
+      "$" + revenueAtRisk.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "/min";
+    el("brief-risk").setAttribute("data-active", "true");
+  }
+  flashValue("brief-revenue");
+  el("loss-averted").textContent =
+    "$" + lossAverted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  flashValue("loss-averted");
+  clear(el("brief-rows"));
+  el("brief-rows").appendChild(arrive(text("div", "prose", event.payload.text)));
+  [
+    ["brief-dashboard-link", event.payload.dashboard_url],
+    ["brief-incident-link", event.payload.incident_url],
+    ["brief-alert-rule-link", event.payload.alert_rule_url]
+  ].forEach(function (link) {
+    var element = el(link[0]);
+    if (link[1]) {
+      element.href = link[1];
+      element.removeAttribute("hidden");
+    } else {
+      element.href = "#";
+      element.setAttribute("hidden", "hidden");
+    }
+  });
+  markFresh("brief-panel");
+  renderIncidentFeed(event);
+}
+
+function renderRisk(event) {
+  // Fires right after `open_incident` — real minutes before `brief` exists — so the hero
+  // tile stops reading "Awaiting incident" the moment a real incident is confirmed instead
+  // of only once the full remediate/verify/close/brief chain finishes.
+  var revenueAtRisk = Number(event.payload.revenue_at_risk_per_min);
+  if (!isFinite(revenueAtRisk)) {
+    throw new Error("risk event's revenue-at-risk value was not a number");
+  }
+  el("brief-revenue").textContent =
+    "$" + revenueAtRisk.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "/min";
+  el("brief-risk").setAttribute("data-active", "true");
+  flashValue("brief-revenue");
+  markFresh("brief-panel");
+}
+
+function renderIncidentFeed(event) {
+  incidentFeed.push({
+    channel: event.payload.channel,
+    region: event.payload.region,
+    revenue_at_risk_per_min: Number(event.payload.revenue_at_risk_per_min),
+    outcome: event.payload.outcome,
+    at: event.at
+  });
+  if (incidentFeed.length > 20) {
+    incidentFeed.shift();
+  }
+
+  var rows = el("incident-feed-rows");
+  clear(rows);
+  incidentFeed.slice().sort(function (left, right) {
+    return right.revenue_at_risk_per_min - left.revenue_at_risk_per_min;
+  }).forEach(function (incident) {
+    var card = document.createElement("div");
+    card.className = "incident-card";
+    card.appendChild(text("div", "label", incident.channel + " / " + incident.region));
+    card.appendChild(text(
+      "strong",
+      null,
+      "$" + incident.revenue_at_risk_per_min.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }) + "/min"
+    ));
+    card.appendChild(text("div", "label", OUTCOME_LABELS[incident.outcome] || incident.outcome));
+    rows.appendChild(arrive(card));
+  });
+  markFresh("incident-feed-panel");
+}
+
+// The authoritative `brief` event only arrives once the full settle window closes —
+// minutes after detection. Without this, the hero's dollar figure sits on "Awaiting
+// incident" for the entire verification window while the narration right below it
+// already states the exact number. These match `orchestrator.py`'s own `_narrate_incident`
+// text exactly (`Found a problem on {channel} ({region})` / `This is costing $X per minute`)
+// — a preview of the same figure the real `brief` event carries, not a second source of
+// truth; the later `brief` event still overwrites these fields with its own authoritative
+// render.
+var INCIDENT_NARRATION_PATTERN = /^Found a problem on (.+) \(([^)]+)\)/;
+var COST_NARRATION_PATTERN = /costing \$([0-9,]+\.\d{2}) per minute/;
+
+function previewIncidentFromNarration(narrationText) {
+  var incidentMatch = INCIDENT_NARRATION_PATTERN.exec(narrationText);
+  if (incidentMatch) {
+    el("brief-context").textContent = incidentMatch[1] + " / " + incidentMatch[2];
+  }
+  var costMatch = COST_NARRATION_PATTERN.exec(narrationText);
+  if (costMatch) {
+    el("brief-revenue").textContent = "$" + costMatch[1] + "/min";
+    el("brief-risk").setAttribute("data-active", "true");
+    flashValue("brief-revenue");
+    markFresh("brief-panel");
+  }
+}
+
+function renderNarration(event) {
+  var rows = el("narration-rows");
+  if (rows.querySelector(".empty")) {
+    clear(rows);
+  }
+  var step = document.createElement("div");
+  step.className = "step";
+  step.appendChild(text("div", "step-dot", ""));
+  step.appendChild(text("div", "step-text", event.payload.text));
+  rows.appendChild(arrive(step));
+  rows.scrollTop = rows.scrollHeight;
+  markFresh("narration-panel");
+  updateIncidentStatus(event.payload.text);
+  updatePlayerCaption(event.payload.text);
+  previewIncidentFromNarration(event.payload.text);
+  if (event.payload.text.indexOf("I could not identify a safe fix from the available evidence") === 0) {
+    el("no-safe-fix-escalation").textContent = event.payload.text;
+    el("no-safe-fix-escalation").removeAttribute("hidden");
+  }
+  if (event.payload.text.indexOf("That fix reaches too many broad parts of the platform") === 0) {
+    el("policy-refused-escalation").textContent = event.payload.text;
+    el("policy-refused-escalation").removeAttribute("hidden");
+  }
+}
+
+function renderApproval(event) {
+  pendingActionId = event.payload.action_id;
+  el("sidebar-approval").setAttribute("data-armed", "true");
+  el("sidebar-approval").classList.remove("gate-armed");
+  void el("sidebar-approval").offsetWidth;
+  el("sidebar-approval").classList.add("gate-armed");
+  el("approval-detail").textContent = event.payload.proposed_action + " Projected saving: " +
+    event.payload.projected_saving + ". Blast radius: " + event.payload.blast_radius + ".";
+  el("approve-action").disabled = false;
+  el("reject-action").disabled = false;
+  markFresh("sidebar-approval");
+  el("approval-escalation").textContent = event.payload.proposed_action + " Projected saving: " +
+    event.payload.projected_saving + ". Blast radius: " + event.payload.blast_radius + ".";
+  el("approval-escalation").removeAttribute("hidden");
+}
+
+function renderControl(event) {
+  if (event.payload.action_id) {
+    currentActionId = event.payload.action_id;
+  }
+  if (event.payload.control === "check" && event.payload.status === "started") {
+    setAgentStatus("alive", "AGENT ALIVE");
+    el("check-now").disabled = true;
+    el("kill-agent").disabled = false;
+  }
+  // Yuvraj, 2026-09-09: the continuous auto-loop (`start_agent_loop`, auto-started the
+  // moment `/agent` loads) publishes `control: "loop"`, not `control: "check"` — so this
+  // header never left "NO AGENT YET" for a loop-driven cycle, including one genuinely
+  // alive and blocked on `decision_queue.get()` waiting for an Approve/Reject click. The
+  // process is real and killable the whole time the loop runs, not only mid-cycle.
+  if (event.payload.control === "loop" && event.payload.status === "started") {
+    setAgentStatus("alive", "AGENT ALIVE");
+    el("kill-agent").disabled = false;
+  }
+  // Yuvraj, 2026-09-10: the bounded loop (`ui/controls.py::_AgentLoopProcess`) stops
+  // itself once resolved or idle too long, and publishes `control: "loop", status:
+  // "stopped"` when it does — but nothing here ever listened for it, so the header kept
+  // reading "AGENT ALIVE" and the Kill button stayed enabled long after the real process
+  // was gone. Clicking Kill against a dead process correctly failed ("no live agent
+  // cycle exists to kill") — the UI was lying, not the backend.
+  if (event.payload.control === "loop" && event.payload.status === "stopped") {
+    setAgentStatus("idle", "NO AGENT YET");
+    el("kill-agent").disabled = true;
+  }
+  if (event.payload.control === "cycle" && event.payload.status === "completed") {
+    el("check-now").disabled = false;
+  }
+  if (event.payload.status === "watchdog_armed") {
+    el("kill-agent").disabled = false;
+    el("revert-now").disabled = false;
+    setWatchdog(true);
+  }
+  if (event.payload.control === "kill" && event.payload.status === "killed") {
+    setAgentStatus("killed", "AGENT KILLED");
+    // Yuvraj, 2026-09-09: the hero "Revenue at risk" tile only ever reset on a real
+    // `brief` (VERIFIED) event. Killing the agent stops the automated loop but leaves
+    // whatever number was last shown frozen on screen, which reads as "still true" long
+    // after the automation that produced it stopped running. Honest options here are
+    // "resolved" (a lie — nothing was verified) or "unknown" — this is "unknown".
+    el("brief-revenue").textContent = "Awaiting incident";
+    el("brief-risk").setAttribute("data-active", "false");
+  }
+  if (event.payload.control === "revert" && event.payload.status === "reverted") {
+    setWatchdog(false);
+    // Same reasoning as kill: a revert undoes the agent's *fix*, not the underlying
+    // fault. If the fault is still real, the channel may still be losing money — this
+    // console just has no current number for it once the loop has stopped, so it says
+    // so rather than leaving a stale figure that looks like a live, resolved state.
+    el("brief-revenue").textContent = "Awaiting incident";
+    el("brief-risk").setAttribute("data-active", "false");
+  }
+  if (event.payload.control === "approve" || event.payload.control === "reject") {
+    el("sidebar-approval").setAttribute("data-armed", "false");
+  }
+  el("control-status").textContent = event.payload.message || event.payload.status;
+}
+
+function renderRevenue(event) {
+  var revenue = Number(event.payload.tonight_revenue_usd);
+  if (!isFinite(revenue)) {
+    throw new Error("tonight revenue value was not a number");
+  }
+  el("tonight-revenue").textContent =
+    "$" + revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  flashValue("tonight-revenue");
+  markFresh("brief-panel");
+}
+
+// Anything the page could not show is said out loud, in the busiest panel. A frame that
+// silently failed to render would leave the stream looking complete when it is not, and
+// that is the one thing this console exists to rule out.
+function renderNotice(message) {
+  var rows = mcpContainer();
+  rows.insertBefore(text("div", "call ungrounded", message), rows.firstChild);
+}
+
+function renderEvent(event) {
+  lastEventAt = Date.now();
+  if (event.kind === "stage") {
+    renderStage(event);
+  } else if (event.kind === "mcp_call") {
+    renderMcpCall(event);
+  } else if (event.kind === "evidence") {
+    renderEvidence(event);
+  } else if (event.kind === "brief") {
+    renderBrief(event);
+  } else if (event.kind === "risk") {
+    renderRisk(event);
+  } else if (event.kind === "narration") {
+    renderNarration(event);
+  } else if (event.kind === "approval") {
+    renderApproval(event);
+  } else if (event.kind === "control") {
+    renderControl(event);
+  } else if (event.kind === "revenue") {
+    renderRevenue(event);
+  } else if (event.kind === "player") {
+    renderPlayer(event);
+  }
+  el("last-event").textContent =
+    "last event #" + event.seq + " at " + stamp(event.at) + (event.replay ? " (replayed)" : "");
+}
+
+function postControl(path, payload, button) {
+  var options = { method: "POST", headers: { "Content-Type": "application/json" } };
+  if (payload) {
+    options.body = JSON.stringify(payload);
+  }
+  if (button) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+  }
+  el("control-status").textContent = "Working…";
+  return fetch(path, options).then(function (response) {
+    return response.json().then(function (body) {
+      if (!response.ok) {
+        throw new Error(body.detail || "control failed");
+      }
+      el("control-status").textContent = body.message || body.status || "Done.";
+      return body;
+    });
+  }).catch(function (error) {
+    el("control-status").textContent = "Could not complete that control: " + error.message;
+    console.error("operator control failed", error);
+    return null;
+  }).finally(function () {
+    if (button) {
+      button.removeAttribute("aria-busy");
+      button.disabled = false;
+    }
+  });
+}
+
+el("investigate-now").onclick = function () {
+  var button = el("investigate-now");
+  var status = el("investigate-status");
+  button.disabled = true;
+  status.textContent = "Asking Gemini to investigate — real Grafana queries, this takes a few seconds…";
+  el("investigate-result").setAttribute("hidden", "hidden");
+  fetch("/investigate/ch_flagship_01")
+    .then(function (response) {
+      return response.json().then(function (body) {
+        if (!response.ok) {
+          throw new Error(body.detail || "investigation failed");
+        }
+        return body;
+      });
+    })
+    .then(function (result) {
+      status.textContent = "Done — confidence " + Math.round(result.confidence * 100) + "%.";
+      el("investigate-root-cause").textContent = result.root_cause;
+      var rows = el("investigate-calls-rows");
+      clear(rows);
+      result.tool_calls.forEach(function (call) {
+        var row = document.createElement("div");
+        row.className = "investigate-call-row";
+        row.appendChild(text("strong", null, call.tool + ": "));
+        row.appendChild(text("code", null, call.query));
+        rows.appendChild(row);
+      });
+      el("investigate-result").removeAttribute("hidden");
+    })
+    .catch(function (error) {
+      status.textContent = "Could not complete the investigation: " + error.message;
+    })
+    .finally(function () {
+      button.disabled = false;
+    });
+};
+
+el("check-now").onclick = function () { postControl("/controls/check", null, el("check-now")); };
+el("revert-now").onclick = function () {
+  postControl("/controls/revert", { action_id: currentActionId }, el("revert-now"));
+};
+el("kill-agent").onclick = function () { postControl("/controls/kill", null, el("kill-agent")); };
+el("approve-action").onclick = function () {
+  postControl("/controls/approve", { action_id: pendingActionId }, el("approve-action")).then(function (result) {
+    if (result) {
+      pendingActionId = null;
+      el("approve-action").disabled = true;
+      el("reject-action").disabled = true;
+    }
+  });
+};
+el("reject-action").onclick = function () {
+  postControl("/controls/reject", { action_id: pendingActionId }, el("reject-action")).then(function (result) {
+    if (result) {
+      pendingActionId = null;
+      el("approve-action").disabled = true;
+      el("reject-action").disabled = true;
+    }
+  });
+};
+
+var grafanaEmbedReady = false;
+var grafanaPanelLastRefresh = 0;
+
+// Refreshed by real events, not a repeating timer — this console is deliberately
+// push-driven (see `test_no_interval_based_fetch_exists_anywhere_in_the_operator_ui`,
+// which forbids any polling mechanism anywhere in this file). Every `mcp_call` event is
+// a real signal that Grafana state may have moved, so that is what re-requests the
+// image; the `GRAFANA_PANEL_REFRESH_MS` floor just avoids re-requesting on every single
+// call when several arrive in a burst. The server's own cache (`app.py`) bounds Grafana
+// render load independently of this.
+function refreshGrafanaPanelImage() {
+  if (!grafanaEmbedReady) {
+    return;
+  }
+  var now = Date.now();
+  if (now - grafanaPanelLastRefresh < GRAFANA_PANEL_REFRESH_MS) {
+    return;
+  }
+  grafanaPanelLastRefresh = now;
+  el("grafana-frame").src = GRAFANA_PANEL_IMAGE_URL + "?t=" + now;
+}
+
+function stampGrafanaSnapshot() {
+  el("grafana-snapshot-status").textContent =
+    "Snapshot pulled at " + new Date().toLocaleTimeString() +
+    ". Refreshes after relevant Grafana activity.";
+}
+
+function setUpGrafanaEmbed() {
+  if (!GRAFANA_PUBLIC_URL) {
+    el("grafana-fallback-note").textContent =
+      " (embed not configured yet on this deployment — open dashboards/revenue-watch.json in Grafana directly.)";
+    el("grafana-open-link").setAttribute("hidden", "hidden");
+    return;
+  }
+  el("grafana-placeholder").style.display = "none";
+  var frame = el("grafana-frame");
+  frame.style.display = "block";
+  frame.onerror = function () {
+    frame.style.display = "none";
+    el("grafana-placeholder").style.display = "block";
+    el("grafana-fallback-note").textContent =
+      " (the live panel image could not be loaded this time — open it directly instead.)";
+  };
+  frame.onload = stampGrafanaSnapshot;
+  grafanaEmbedReady = true;
+  grafanaPanelLastRefresh = 0;
+  refreshGrafanaPanelImage();
+  var link = el("grafana-open-link");
+  link.href = GRAFANA_PUBLIC_URL;
+  link.removeAttribute("hidden");
+}
+
+// A purely local, cosmetic clock: it reschedules itself once per tick and only ever
+// formats "how long ago" from a timestamp already stored on this page. It fetches
+// nothing and invents nothing, so it cannot become a second source of truth for any
+// server value — the one thing every panel on this page exists to rule out.
+function tickLiveness() {
+  if (lastEventAt !== null) {
+    var deltaMs = Date.now() - lastEventAt;
+    var deltaSeconds = deltaMs / 1000;
+    el("last-event-age").textContent =
+      deltaSeconds < 1 ? "· just now" : "· " + deltaSeconds.toFixed(1) + "s ago";
+    var badge = el("status");
+    if (document.body.dataset.connection === "live") {
+      badge.setAttribute("data-liveness", deltaMs > STALE_AFTER_MS ? "stale" : "fresh");
+    }
+  }
+  window.setTimeout(tickLiveness, LIVENESS_TICK_MS);
+}
+
+function connect() {
+  var scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+  socket = new WebSocket(scheme + "//" + window.location.host + "/ws/events");
+
+  socket.onopen = function () {
+    setConnected(true);
+  };
+
+  socket.onmessage = function (frame) {
+    try {
+      var message = JSON.parse(frame.data);
+      if (message.type === "snapshot") {
+        message.events.forEach(renderEvent);
+      } else if (message.type === "event") {
+        renderEvent(message);
+      } else if (message.type === "dropped") {
+        renderNotice(message.count + " event(s) dropped — this client fell behind");
+      } else {
+        renderNotice("unrecognised message type: " + message.type);
+      }
+    } catch (error) {
+      // Not swallowed: reported on the page and in the console. An exception thrown here
+      // would otherwise drop one frame invisibly and leave the panel looking complete.
+      renderNotice("a frame could not be rendered: " + error);
+      console.error("operator UI failed to render a frame", error, frame.data);
+    }
+  };
+
+  socket.onclose = function () {
+    setConnected(false);
+    window.setTimeout(connect, RECONNECT_DELAY_MS);
+  };
+
+  socket.onerror = function () {
+    setConnected(false);
+  };
+}
+
+setUpGrafanaEmbed();
+tickLiveness();
+connect();
+</script>
+</body>
+</html>
